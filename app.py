@@ -107,13 +107,28 @@ class DrawingApp:
         tk.Checkbutton(toolbar, text="Rellenar", variable=self.fill_enabled).pack(side="left")
 
     def get_bgr_color(self):
-        r = int(self.r_value.get())
-        g = int(self.g_value.get())
-        b = int(self.b_value.get())
+        def clamp_channel(value_var):
+            try:
+                v = int(value_var.get())
+            except (tk.TclError, TypeError, ValueError):
+                v = 0
+            v = max(0, min(255, v))
+            value_var.set(v)
+            return v
+
+        r = clamp_channel(self.r_value)
+        g = clamp_channel(self.g_value)
+        b = clamp_channel(self.b_value)
         return (b, g, r)
 
     def get_thickness(self):
-        return max(1, int(self.thickness.get()))
+        try:
+            t = int(self.thickness.get())
+        except (tk.TclError, TypeError, ValueError):
+            t = 1
+        t = max(1, min(50, t))
+        self.thickness.set(t)
+        return t
 
     def on_press(self, event):
         if self.image is None:
