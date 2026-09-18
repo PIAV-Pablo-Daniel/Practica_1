@@ -154,10 +154,12 @@ class DrawingApp:
         tool = self.tool.get()
         color = self.get_bgr_color()
         thickness = self.get_thickness()
+        fillable = tool in ("rectangle", "circle")
+        draw_thickness = cv2.FILLED if (fillable and self.fill_enabled.get()) else thickness
 
         if tool == "line":
             drawing_tools.draw_line(img, p1, p2, color, thickness)
         elif tool == "rectangle":
-            drawing_tools.draw_rectangle(img, p1, p2, color, thickness)
+            drawing_tools.draw_rectangle(img, p1, p2, color, draw_thickness)
         elif tool == "circle":
-            drawing_tools.draw_circle(img, p1, p2, color, thickness)
+            drawing_tools.draw_circle(img, p1, p2, color, draw_thickness)
