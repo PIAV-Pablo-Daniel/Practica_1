@@ -1,7 +1,7 @@
-import cv2
-import numpy as np
 import tkinter as tk
-from tkinter import filedialog, colorchooser
-from PIL import Image, ImageTk
+from app import DrawingApp
 
-print("Entorno preparado")
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = DrawingApp(root)
+    root.mainloop()
