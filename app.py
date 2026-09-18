@@ -12,6 +12,7 @@ class DrawingApp:
         self.root = root
         self.root.title("PIAV - Práctica 1")
         self.image = None
+        self.original_image = None
         self.tk_image = None
 
         self.image_label = tk.Label(root)
@@ -19,6 +20,12 @@ class DrawingApp:
 
         open_btn = tk.Button(root, text="Abrir imagen", command=self.open_image)
         open_btn.pack()
+
+        save_btn = tk.Button(root, text="Guardar imagen", command=self.save_image)
+        save_btn.pack()
+
+        restore_btn = tk.Button(root, text="Restaurar", command=self.restore_original)
+        restore_btn.pack()
 
         self.rgb_label = tk.Label(root, text="RGB: —")
         self.rgb_label.pack()
@@ -49,6 +56,7 @@ class DrawingApp:
         if img is None:
             return
         self.image = img
+        self.original_image = img.copy()
         self.refresh_view()
 
     def refresh_view(self):
@@ -216,4 +224,21 @@ class DrawingApp:
                 drawing_tools.draw_polygon(self.image, self.poly_points, color, thickness)
 
         self.poly_points = []
+        self.refresh_view()
+
+    def save_image(self):
+        if self.image is None:
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg")]
+        )
+        if not path:
+            return
+        cv2.imwrite(path, self.image)
+
+    def restore_original(self):
+        if self.original_image is None:
+            return
+        self.image = self.original_image.copy()
         self.refresh_view()
