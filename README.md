@@ -39,8 +39,8 @@ La aplicación permite cargar una imagen, consultar el valor RGB del píxel bajo
 | Figuras rellenas                                | Optativo          | ✅ |
 | Elipse, polilínea y polígono                    | Optativo          | ✅ |
 | Guardar imagen / restaurar original             | Pulido            | ✅ |
-| Grabación del proceso como vídeo                | Optativo          | ⬜ |
-| Inspector de píxel avanzado                     | Aportación propia | ⬜ |
+| Grabación del proceso como vídeo                | Optativo          | ✅ |
+| Inspector de píxel avanzado                     | Aportación propia | ✅ |
 | Deshacer / rehacer                              | Pulido extra      | ⬜ |
 
 ---

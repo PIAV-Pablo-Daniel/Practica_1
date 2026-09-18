@@ -1,6 +1,7 @@
 from turtle import color
 
 import cv2
+import numpy as np
 import tkinter as tk
 import drawing_tools
 import video_recorder
@@ -35,6 +36,20 @@ class DrawingApp:
 
         self.rgb_label = tk.Label(root, text="RGB: —")
         self.rgb_label.pack()
+
+        self.hex_label = tk.Label(root, text="HEX: —")
+        self.hex_label.pack()
+
+        self.hsv_label = tk.Label(root, text="HSV: —")
+        self.hsv_label.pack()
+
+        self.luminance_label = tk.Label(root, text="Luminancia: —")
+        self.luminance_label.pack()
+
+        self.zoom_label = tk.Label(root)
+        self.zoom_label.pack()
+        self.zoom_tk_image = None
+
 
         self.image_label.bind("<Motion>", self.on_mouse_move)
         self.image_label.bind("<ButtonPress-1>", self.on_press)
@@ -81,9 +96,25 @@ class DrawingApp:
         x, y = event.x, event.y
         if 0 <= x < w and 0 <= y < h:
             b, g, r = self.image[y, x]
+            r, g, b = int(r), int(g), int(b)
+
             self.rgb_label.config(text=f"RGB: ({r}, {g}, {b})")
+            self.hex_label.config(text=f"HEX: #{r:02X}{g:02X}{b:02X}")
+
+            pixel_bgr = np.uint8([[[b, g, r]]])
+            hsv = cv2.cvtColor(pixel_bgr, cv2.COLOR_BGR2HSV)[0, 0]
+            h_val, s_val, v_val = map(int, hsv)
+            self.hsv_label.config(text=f"HSV: ({h_val}, {s_val}, {v_val})")
+
+            luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            self.luminance_label.config(text=f"Luminancia: {luminance:.1f}")
+
+            self.update_zoom(x, y)
         else:
             self.rgb_label.config(text="RGB: —")
+            self.hex_label.config(text="HEX: —")
+            self.hsv_label.config(text="HSV: —")
+            self.luminance_label.config(text="Luminancia: —")
 
     def build_toolbar(self):
         toolbar = tk.Frame(self.root)
@@ -233,6 +264,19 @@ class DrawingApp:
         self.capture_frame()
         self.poly_points = []
         self.refresh_view()
+
+    def update_zoom(self, x, y):
+        h, w = self.image.shape[:2]
+        radius = 5
+        x1, x2 = max(0, x - radius), min(w, x + radius + 1)
+        y1, y2 = max(0, y - radius), min(h, y + radius + 1)
+        patch = self.image[y1:y2, x1:x2]
+
+        zoom = cv2.resize(patch, None, fx=12, fy=12, interpolation=cv2.INTER_NEAREST)
+        zoom_rgb = cv2.cvtColor(zoom, cv2.COLOR_BGR2RGB)
+        pil_zoom = Image.fromarray(zoom_rgb)
+        self.zoom_tk_image = ImageTk.PhotoImage(pil_zoom)
+        self.zoom_label.config(image=self.zoom_tk_image)
 
     def save_image(self):
         if self.image is None:
