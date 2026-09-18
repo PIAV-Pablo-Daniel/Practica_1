@@ -17,6 +17,9 @@ class DrawingApp:
         self.original_image = None
         self.recording = False
         self.recorded_frames = []
+        self.history = []
+        self.redo_stack = []
+        self.max_history = 30
         self.tk_image = None
 
         self.image_label = tk.Label(root)
@@ -33,6 +36,12 @@ class DrawingApp:
 
         self.record_btn = tk.Button(root, text="Iniciar grabación", command=self.toggle_recording)
         self.record_btn.pack()
+
+        self.undo_btn = tk.Button(root, text="Deshacer", command=self.undo)
+        self.undo_btn.pack()
+
+        self.redo_btn = tk.Button(root, text="Rehacer", command=self.redo)
+        self.redo_btn.pack()
 
         self.rgb_label = tk.Label(root, text="RGB: —")
         self.rgb_label.pack()
@@ -56,6 +65,8 @@ class DrawingApp:
         self.image_label.bind("<B1-Motion>", self.on_drag)
         self.image_label.bind("<ButtonRelease-1>", self.on_release)
         self.image_label.bind("<Double-Button-1>", lambda event: self.finish_polygon())
+        self.root.bind("<Control-z>", lambda event: self.undo())
+        self.root.bind("<Control-y>", lambda event: self.redo())
 
         self.tool = tk.StringVar(value="line")
         self.color_rgb = (255, 0, 0)
@@ -205,6 +216,7 @@ class DrawingApp:
         tool = self.tool.get()
         if tool in ("polyline", "polygon"):
             return
+        self.push_history()
         self.draw_current_shape(self.image, self.start_point, (event.x, event.y))
         self.capture_frame()
         self.start_point = None
@@ -253,6 +265,7 @@ class DrawingApp:
         color = self.get_bgr_color()
         thickness = self.get_thickness()
 
+        self.push_history()
         if tool == "polyline":
             drawing_tools.draw_polyline(self.image, self.poly_points, color, thickness)
         else:  # polygon
@@ -292,6 +305,7 @@ class DrawingApp:
     def restore_original(self):
         if self.original_image is None:
             return
+        self.push_history()
         self.image = self.original_image.copy()
         self.refresh_view()
 
@@ -325,4 +339,22 @@ class DrawingApp:
             return
         video_recorder.write_video(path, self.recorded_frames)
 
-    
+    def push_history(self):
+        self.history.append(self.image.copy())
+        if len(self.history) > self.max_history:
+            self.history.pop(0)
+        self.redo_stack.clear()
+
+    def undo(self):
+        if not self.history:
+            return
+        self.redo_stack.append(self.image.copy())
+        self.image = self.history.pop()
+        self.refresh_view()
+
+    def redo(self):
+        if not self.redo_stack:
+            return
+        self.history.append(self.image.copy())
+        self.image = self.redo_stack.pop()
+        self.refresh_view()
