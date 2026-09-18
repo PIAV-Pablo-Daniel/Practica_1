@@ -36,7 +36,7 @@ La aplicación permite cargar una imagen, consultar el valor RGB del píxel bajo
 | Barra de herramientas (forma, color, grosor)    | Base              | ✅ |
 | Dibujo con ratón: línea, rectángulo, círculo    | Obligatorio       | ✅ |
 | Color RGB y grosor aplicados al dibujo          | Obligatorio       | ✅ |
-| Figuras rellenas                                | Optativo          | ⬜ |
+| Figuras rellenas                                | Optativo          | ✅ |
 | Elipse, polilínea y polígono                    | Optativo          | ⬜ |
 | Guardar imagen / restaurar original             | Pulido            | ⬜ |
 | Grabación del proceso como vídeo                | Optativo          | ⬜ |

@@ -27,12 +27,14 @@ class DrawingApp:
         self.image_label.bind("<ButtonPress-1>", self.on_press)
         self.image_label.bind("<B1-Motion>", self.on_drag)
         self.image_label.bind("<ButtonRelease-1>", self.on_release)
+        self.image_label.bind("<Double-Button-1>", lambda event: self.finish_polygon())
 
         self.tool = tk.StringVar(value="line")
         self.color_rgb = (255, 0, 0)
         self.thickness = tk.IntVar(value=2)
         self.fill_enabled = tk.BooleanVar(value=False)
         self.start_point = None
+        self.poly_points = []
         self.preview_image = None
 
         self.build_toolbar()
@@ -98,6 +100,7 @@ class DrawingApp:
         tk.Spinbox(toolbar, from_=0, to=255, width=4, textvariable=self.g_value).pack(side="left")
         tk.Label(toolbar, text="B:").pack(side="left")
         tk.Spinbox(toolbar, from_=0, to=255, width=4, textvariable=self.b_value).pack(side="left")
+        tk.Button(toolbar, text="Finalizar figura", command=self.finish_polygon).pack(side="left")
 
         # Grosor
         tk.Label(toolbar, text="Grosor:").pack(side="left")
@@ -133,18 +136,29 @@ class DrawingApp:
     def on_press(self, event):
         if self.image is None:
             return
-        self.start_point = (event.x, event.y)
+        tool = self.tool.get()
+        if tool in ("polyline", "polygon"):
+            self.poly_points.append((event.x, event.y))
+            self.update_poly_preview()
+        else:
+            self.start_point = (event.x, event.y)
 
     def on_drag(self, event):
         if self.image is None or self.start_point is None:
             return
+        tool = self.tool.get()
+        if tool in ("polyline", "polygon"):
+            return
         preview = self.image.copy()
         self.draw_current_shape(preview, self.start_point, (event.x, event.y))
         self.show_array(preview)
-        
+
 
     def on_release(self, event):
         if self.image is None or self.start_point is None:
+            return
+        tool = self.tool.get()
+        if tool in ("polyline", "polygon"):
             return
         self.draw_current_shape(self.image, self.start_point, (event.x, event.y))
         self.start_point = None
@@ -163,3 +177,43 @@ class DrawingApp:
             drawing_tools.draw_rectangle(img, p1, p2, color, draw_thickness)
         elif tool == "circle":
             drawing_tools.draw_circle(img, p1, p2, color, draw_thickness)
+        elif tool == "ellipse":
+            drawing_tools.draw_ellipse(img, p1, p2, color, draw_thickness)
+
+    def update_poly_preview(self):
+        if not self.poly_points:
+            return
+        preview = self.image.copy()
+        color = self.get_bgr_color()
+        thickness = self.get_thickness()
+        for point in self.poly_points:
+            cv2.circle(preview, point, 3, color, cv2.FILLED, cv2.LINE_AA)
+        if len(self.poly_points) > 1:
+            drawing_tools.draw_polyline(preview, self.poly_points, color, thickness)
+        self.show_array(preview)
+
+    def finish_polygon(self):
+        tool = self.tool.get()
+        if tool not in ("polyline", "polygon"):
+            return
+        # el doble clic genera dos clics casi en el mismo punto; se descarta el duplicado
+        if len(self.poly_points) >= 2 and self.poly_points[-1] == self.poly_points[-2]:
+            self.poly_points.pop()
+        if len(self.poly_points) < 2:
+            self.poly_points = []
+            self.refresh_view()
+            return
+
+        color = self.get_bgr_color()
+        thickness = self.get_thickness()
+
+        if tool == "polyline":
+            drawing_tools.draw_polyline(self.image, self.poly_points, color, thickness)
+        else:  # polygon
+            if self.fill_enabled.get():
+                drawing_tools.fill_polygon(self.image, self.poly_points, color)
+            else:
+                drawing_tools.draw_polygon(self.image, self.poly_points, color, thickness)
+
+        self.poly_points = []
+        self.refresh_view()
