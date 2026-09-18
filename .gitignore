@@ -1,0 +1,12 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+Guia_Paso_a_Paso_Practica_1_PIAV.docx
+
+# Virtual environments
+.venv
