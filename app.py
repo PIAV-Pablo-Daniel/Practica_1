@@ -142,3 +142,7 @@ class DrawingApp:
 
         if tool == "line":
             drawing_tools.draw_line(img, p1, p2, color, thickness)
+        elif tool == "rectangle":
+            drawing_tools.draw_rectangle(img, p1, p2, color, thickness)
+        elif tool == "circle":
+            drawing_tools.draw_circle(img, p1, p2, color, thickness)
