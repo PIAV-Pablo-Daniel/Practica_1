@@ -1,5 +1,8 @@
+from turtle import color
+
 import cv2
 import tkinter as tk
+import drawing_tools
 from tkinter import filedialog
 from PIL import Image, ImageTk
 
@@ -21,6 +24,9 @@ class DrawingApp:
         self.rgb_label.pack()
 
         self.image_label.bind("<Motion>", self.on_mouse_move)
+        self.image_label.bind("<ButtonPress-1>", self.on_press)
+        self.image_label.bind("<B1-Motion>", self.on_drag)
+        self.image_label.bind("<ButtonRelease-1>", self.on_release)
 
         self.tool = tk.StringVar(value="line")
         self.color_rgb = (255, 0, 0)
@@ -44,7 +50,10 @@ class DrawingApp:
         self.refresh_view()
 
     def refresh_view(self):
-        rgb = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
+        self.show_array(self.image)
+
+    def show_array(self, array):
+        rgb = cv2.cvtColor(array, cv2.COLOR_BGR2RGB)
         pil = Image.fromarray(rgb)
         self.tk_image = ImageTk.PhotoImage(pil)
         self.image_label.config(image=self.tk_image)
@@ -105,3 +114,31 @@ class DrawingApp:
 
     def get_thickness(self):
         return max(1, int(self.thickness.get()))
+
+    def on_press(self, event):
+        if self.image is None:
+            return
+        self.start_point = (event.x, event.y)
+
+    def on_drag(self, event):
+        if self.image is None or self.start_point is None:
+            return
+        preview = self.image.copy()
+        self.draw_current_shape(preview, self.start_point, (event.x, event.y))
+        self.show_array(preview)
+        
+
+    def on_release(self, event):
+        if self.image is None or self.start_point is None:
+            return
+        self.draw_current_shape(self.image, self.start_point, (event.x, event.y))
+        self.start_point = None
+        self.refresh_view()
+
+    def draw_current_shape(self, img, p1, p2):
+        tool = self.tool.get()
+        color = self.get_bgr_color()
+        thickness = self.get_thickness()
+
+        if tool == "line":
+            drawing_tools.draw_line(img, p1, p2, color, thickness)

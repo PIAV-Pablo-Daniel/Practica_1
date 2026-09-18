@@ -7,6 +7,7 @@ wheels/
 *.egg-info
 
 Guia_Paso_a_Paso_Practica_1_PIAV.docx
+Enunciado de la práctica 1 PIAV.pdf
 
 # Virtual environments
 .venv
