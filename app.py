@@ -3,6 +3,7 @@ from turtle import color
 import cv2
 import tkinter as tk
 import drawing_tools
+import video_recorder
 from tkinter import filedialog
 from PIL import Image, ImageTk
 
@@ -13,6 +14,8 @@ class DrawingApp:
         self.root.title("PIAV - Práctica 1")
         self.image = None
         self.original_image = None
+        self.recording = False
+        self.recorded_frames = []
         self.tk_image = None
 
         self.image_label = tk.Label(root)
@@ -26,6 +29,9 @@ class DrawingApp:
 
         restore_btn = tk.Button(root, text="Restaurar", command=self.restore_original)
         restore_btn.pack()
+
+        self.record_btn = tk.Button(root, text="Iniciar grabación", command=self.toggle_recording)
+        self.record_btn.pack()
 
         self.rgb_label = tk.Label(root, text="RGB: —")
         self.rgb_label.pack()
@@ -169,6 +175,7 @@ class DrawingApp:
         if tool in ("polyline", "polygon"):
             return
         self.draw_current_shape(self.image, self.start_point, (event.x, event.y))
+        self.capture_frame()
         self.start_point = None
         self.refresh_view()
 
@@ -223,6 +230,7 @@ class DrawingApp:
             else:
                 drawing_tools.draw_polygon(self.image, self.poly_points, color, thickness)
 
+        self.capture_frame()
         self.poly_points = []
         self.refresh_view()
 
@@ -242,3 +250,35 @@ class DrawingApp:
             return
         self.image = self.original_image.copy()
         self.refresh_view()
+
+    def toggle_recording(self):
+        if self.image is None:
+            return
+        if not self.recording:
+            self.recording = True
+            self.recorded_frames = []
+            self.capture_frame()
+            self.record_btn.config(text="Detener grabación")
+        else:
+            self.recording = False
+            self.record_btn.config(text="Iniciar grabación")
+            self.save_video()
+
+
+    def capture_frame(self):
+        if self.recording and self.image is not None:
+            self.recorded_frames.append(self.image.copy())
+
+
+    def save_video(self):
+        if not self.recorded_frames:
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".mp4",
+            filetypes=[("MP4", "*.mp4")]
+        )
+        if not path:
+            return
+        video_recorder.write_video(path, self.recorded_frames)
+
+    
