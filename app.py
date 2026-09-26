@@ -1,360 +1,395 @@
-from turtle import color
-
+import os
 import cv2
 import numpy as np
 import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+from PIL import Image, ImageTk
+
 import drawing_tools
 import video_recorder
-from tkinter import filedialog
-from PIL import Image, ImageTk
+import utils
 
 
 class DrawingApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PIAV - Práctica 1")
+        self.root.title("PIAV - Práctica 1: Visor y Editor Gráfico")
+        self.root.geometry("1100x720")
+
+        # Imagen maestra en formato OpenCV (BGR) y copia original de respaldo
         self.image = None
         self.original_image = None
+        self.scale_factor = 1.0
+
+        # Historial de cambios para Deshacer (Undo)
+        self.history = []
+
+        # Grabación de vídeo paso a paso
         self.recording = False
         self.recorded_frames = []
-        self.history = []
-        self.redo_stack = []
-        self.max_history = 30
-        self.tk_image = None
 
-        self.image_label = tk.Label(root)
-        self.image_label.pack()
-
-        open_btn = tk.Button(root, text="Abrir imagen", command=self.open_image)
-        open_btn.pack()
-
-        save_btn = tk.Button(root, text="Guardar imagen", command=self.save_image)
-        save_btn.pack()
-
-        restore_btn = tk.Button(root, text="Restaurar", command=self.restore_original)
-        restore_btn.pack()
-
-        self.record_btn = tk.Button(root, text="Iniciar grabación", command=self.toggle_recording)
-        self.record_btn.pack()
-
-        self.undo_btn = tk.Button(root, text="Deshacer", command=self.undo)
-        self.undo_btn.pack()
-
-        self.redo_btn = tk.Button(root, text="Rehacer", command=self.redo)
-        self.redo_btn.pack()
-
-        self.rgb_label = tk.Label(root, text="RGB: —")
-        self.rgb_label.pack()
-
-        self.hex_label = tk.Label(root, text="HEX: —")
-        self.hex_label.pack()
-
-        self.hsv_label = tk.Label(root, text="HSV: —")
-        self.hsv_label.pack()
-
-        self.luminance_label = tk.Label(root, text="Luminancia: —")
-        self.luminance_label.pack()
-
-        self.zoom_label = tk.Label(root)
-        self.zoom_label.pack()
-        self.zoom_tk_image = None
-
-
-        self.image_label.bind("<Motion>", self.on_mouse_move)
-        self.image_label.bind("<ButtonPress-1>", self.on_press)
-        self.image_label.bind("<B1-Motion>", self.on_drag)
-        self.image_label.bind("<ButtonRelease-1>", self.on_release)
-        self.image_label.bind("<Double-Button-1>", lambda event: self.finish_polygon())
-        self.root.bind("<Control-z>", lambda event: self.undo())
-        self.root.bind("<Control-y>", lambda event: self.redo())
-
+        # Configuración de dibujo
         self.tool = tk.StringVar(value="line")
-        self.color_rgb = (255, 0, 0)
-        self.thickness = tk.IntVar(value=2)
         self.fill_enabled = tk.BooleanVar(value=False)
+        self.thickness = tk.IntVar(value=2)
+        self.r_val = tk.IntVar(value=255)
+        self.g_val = tk.IntVar(value=0)
+        self.b_val = tk.IntVar(value=0)
+
+        # Control del ratón
         self.start_point = None
         self.poly_points = []
-        self.preview_image = None
 
-        self.build_toolbar()
+        # Interfaz de usuario y atajos de teclado
+        self.setup_ui()
+        self.root.bind("<Control-z>", lambda e: self.undo())
 
-    def open_image(self):
-        path = filedialog.askopenfilename(
-            filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.bmp")]
+    def setup_ui(self):
+        # 1. Barra superior: Acciones, Zoom, Grabación, Deshacer y Filtros
+        top_bar = tk.Frame(self.root, bd=1, relief=tk.RAISED, padx=5, pady=4)
+        top_bar.pack(side=tk.TOP, fill=tk.X)
+
+        tk.Button(top_bar, text="Abrir", command=self.open_image).pack(side=tk.LEFT, padx=2)
+        tk.Button(top_bar, text="Guardar", command=self.save_image).pack(side=tk.LEFT, padx=2)
+        tk.Button(top_bar, text="Restaurar", command=self.restore_original).pack(side=tk.LEFT, padx=2)
+        tk.Button(top_bar, text="Deshacer (Ctrl+Z)", command=self.undo).pack(side=tk.LEFT, padx=2)
+
+        # Control de Escala / Zoom
+        f_zoom = tk.LabelFrame(top_bar, text="Zoom / Escala", padx=4, pady=1)
+        f_zoom.pack(side=tk.LEFT, padx=6)
+        self.scale_var = tk.DoubleVar(value=100.0)
+        tk.Scale(
+            f_zoom, from_=25, to=300, orient=tk.HORIZONTAL, variable=self.scale_var,
+            command=lambda e: self.refresh_view(), length=100
+        ).pack(side=tk.LEFT, padx=2)
+        tk.Button(f_zoom, text="100%", command=lambda: [self.scale_var.set(100.0), self.refresh_view()]).pack(side=tk.LEFT, padx=2)
+        tk.Button(f_zoom, text="Ajustar", command=self.fit_to_window).pack(side=tk.LEFT, padx=2)
+
+        self.record_btn = tk.Button(top_bar, text="Grabar vídeo", command=self.toggle_recording)
+        self.record_btn.pack(side=tk.LEFT, padx=6)
+
+        # Filtros (Aportación propia)
+        tk.Label(top_bar, text="Filtro:").pack(side=tk.LEFT, padx=(6, 2))
+        self.filter_var = tk.StringVar(value="Escala de Grises")
+        filter_combo = ttk.Combobox(
+            top_bar, textvariable=self.filter_var,
+            values=["Escala de Grises", "Desenfoque (Blur)", "Bordes (Canny)", "Invertir Colores"],
+            state="readonly", width=16
         )
-        if not path:
-            return
-        img = cv2.imread(path)
-        if img is None:
-            return
-        self.image = img
-        self.original_image = img.copy()
-        self.refresh_view()
+        filter_combo.pack(side=tk.LEFT, padx=2)
+        tk.Button(top_bar, text="Aplicar", command=self.apply_filter).pack(side=tk.LEFT, padx=2)
 
-    def refresh_view(self):
-        self.show_array(self.image)
-
-    def show_array(self, array):
-        rgb = cv2.cvtColor(array, cv2.COLOR_BGR2RGB)
-        pil = Image.fromarray(rgb)
-        self.tk_image = ImageTk.PhotoImage(pil)
-        self.image_label.config(image=self.tk_image)
-
-    def on_mouse_move(self, event):
-        if self.image is None:
-            return
-        h, w = self.image.shape[:2]
-        x, y = event.x, event.y
-        if 0 <= x < w and 0 <= y < h:
-            b, g, r = self.image[y, x]
-            r, g, b = int(r), int(g), int(b)
-
-            self.rgb_label.config(text=f"RGB: ({r}, {g}, {b})")
-            self.hex_label.config(text=f"HEX: #{r:02X}{g:02X}{b:02X}")
-
-            pixel_bgr = np.uint8([[[b, g, r]]])
-            hsv = cv2.cvtColor(pixel_bgr, cv2.COLOR_BGR2HSV)[0, 0]
-            h_val, s_val, v_val = map(int, hsv)
-            self.hsv_label.config(text=f"HSV: ({h_val}, {s_val}, {v_val})")
-
-            luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-            self.luminance_label.config(text=f"Luminancia: {luminance:.1f}")
-
-            self.update_zoom(x, y)
-        else:
-            self.rgb_label.config(text="RGB: —")
-            self.hex_label.config(text="HEX: —")
-            self.hsv_label.config(text="HSV: —")
-            self.luminance_label.config(text="Luminancia: —")
-
-    def build_toolbar(self):
-        toolbar = tk.Frame(self.root)
-        toolbar.pack()
+        # 2. Panel lateral: Herramientas, Opciones, Color e Inspector RGB
+        side_panel = tk.Frame(self.root, width=220, bd=1, relief=tk.RAISED, padx=8, pady=6)
+        side_panel.pack(side=tk.LEFT, fill=tk.Y)
+        side_panel.pack_propagate(False)
 
         # Selección de herramienta
-        tools = [
-            ("Línea", "line"),
-            ("Rectángulo", "rectangle"),
-            ("Círculo", "circle"),
-            ("Elipse", "ellipse"),
-            ("Polilínea", "polyline"),
-            ("Polígono", "polygon"),
-        ]
-        for label, value in tools:
-            tk.Radiobutton(
-                toolbar, text=label, variable=self.tool, value=value
-            ).pack(side="left")
+        f_tools = tk.LabelFrame(side_panel, text="Herramientas", padx=5, pady=4)
+        f_tools.pack(fill=tk.X, pady=4)
+        tools = [("Línea", "line"), ("Rectángulo", "rectangle"), ("Círculo", "circle"),
+                 ("Elipse", "ellipse"), ("Polilínea", "polyline"), ("Polígono", "polygon")]
+        for text, val in tools:
+            tk.Radiobutton(f_tools, text=text, variable=self.tool, value=val, anchor="w").pack(fill=tk.X)
+        tk.Button(f_tools, text="Cerrar polígono (Doble Clic)", command=self.finish_polygon).pack(fill=tk.X, pady=3)
 
-        # Color RGB
-        self.r_value = tk.IntVar(value=255)
-        self.g_value = tk.IntVar(value=0)
-        self.b_value = tk.IntVar(value=0)
+        # Opciones de dibujo
+        f_opts = tk.LabelFrame(side_panel, text="Propiedades", padx=5, pady=4)
+        f_opts.pack(fill=tk.X, pady=4)
+        tk.Checkbutton(f_opts, text="Rellenar figura", variable=self.fill_enabled).pack(anchor="w")
 
-        tk.Label(toolbar, text="R:").pack(side="left")
-        tk.Spinbox(toolbar, from_=0, to=255, width=4, textvariable=self.r_value).pack(side="left")
-        tk.Label(toolbar, text="G:").pack(side="left")
-        tk.Spinbox(toolbar, from_=0, to=255, width=4, textvariable=self.g_value).pack(side="left")
-        tk.Label(toolbar, text="B:").pack(side="left")
-        tk.Spinbox(toolbar, from_=0, to=255, width=4, textvariable=self.b_value).pack(side="left")
-        tk.Button(toolbar, text="Finalizar figura", command=self.finish_polygon).pack(side="left")
+        thick_row = tk.Frame(f_opts)
+        thick_row.pack(fill=tk.X, pady=2)
+        tk.Label(thick_row, text="Grosor:").pack(side=tk.LEFT)
+        tk.Spinbox(thick_row, from_=1, to=50, width=5, textvariable=self.thickness).pack(side=tk.RIGHT)
 
-        # Grosor
-        tk.Label(toolbar, text="Grosor:").pack(side="left")
-        tk.Spinbox(toolbar, from_=1, to=50, width=4, textvariable=self.thickness).pack(side="left")
+        # Color en RGB
+        f_color = tk.LabelFrame(side_panel, text="Color (RGB)", padx=5, pady=4)
+        f_color.pack(fill=tk.X, pady=4)
+        for label, var in [("R (Rojo):", self.r_val), ("G (Verde):", self.g_val), ("B (Azul):", self.b_val)]:
+            row = tk.Frame(f_color)
+            row.pack(fill=tk.X, pady=1)
+            tk.Label(row, text=label, width=9, anchor="w").pack(side=tk.LEFT)
+            tk.Spinbox(row, from_=0, to=255, width=4, textvariable=var).pack(side=tk.RIGHT)
+            var.trace_add("write", lambda *_: self.update_color_preview())
 
-        # Relleno
-        tk.Checkbutton(toolbar, text="Rellenar", variable=self.fill_enabled).pack(side="left")
+        self.color_preview = tk.Canvas(f_color, height=20, bd=1, relief=tk.SUNKEN)
+        self.color_preview.pack(fill=tk.X, pady=4)
+        self.update_color_preview()
+
+        # Inspector de Píxel (Requisito 1a)
+        f_pixel = tk.LabelFrame(side_panel, text="Inspector de Píxel", padx=5, pady=6)
+        f_pixel.pack(fill=tk.X, pady=6)
+        self.pos_label = tk.Label(f_pixel, text="Posición: —", anchor="w")
+        self.pos_label.pack(fill=tk.X)
+        self.rgb_label = tk.Label(f_pixel, text="RGB: —", font=("Consolas", 10, "bold"), anchor="w", fg="#004488")
+        self.rgb_label.pack(fill=tk.X, pady=2)
+
+        # 3. Canvas central con barras de desplazamiento
+        center_frame = tk.Frame(self.root)
+        center_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        self.canvas = tk.Canvas(center_frame, bg="#333333", cursor="crosshair")
+        vbar = tk.Scrollbar(center_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        hbar = tk.Scrollbar(center_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self.canvas.configure(xscrollcommand=hbar.set, yscrollcommand=vbar.set)
+
+        vbar.pack(side=tk.RIGHT, fill=tk.Y)
+        hbar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Eventos del ratón sobre la imagen
+        self.canvas.bind("<Motion>", self.on_mouse_move)
+        self.canvas.bind("<ButtonPress-1>", self.on_press)
+        self.canvas.bind("<B1-Motion>", self.on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_release)
+        self.canvas.bind("<Double-Button-1>", lambda e: self.finish_polygon())
+
+    # --- Gestión de Coordenadas, Color y Zoom ---
+    def get_coords(self, event):
+        """Convierte coordenadas del canvas (con scroll y zoom) a píxeles reales de la imagen."""
+        if self.image is None:
+            return None
+        # Desplazamiento por scroll y escalado por zoom
+        x = int(self.canvas.canvasx(event.x) / self.scale_factor)
+        y = int(self.canvas.canvasy(event.y) / self.scale_factor)
+        h, w = self.image.shape[:2]
+        if 0 <= x < w and 0 <= y < h:
+            return (x, y)
+        return None
 
     def get_bgr_color(self):
-        def clamp_channel(value_var):
-            try:
-                v = int(value_var.get())
-            except (tk.TclError, TypeError, ValueError):
-                v = 0
-            v = max(0, min(255, v))
-            value_var.set(v)
-            return v
-
-        r = clamp_channel(self.r_value)
-        g = clamp_channel(self.g_value)
-        b = clamp_channel(self.b_value)
+        """Devuelve el color seleccionado en orden BGR para OpenCV."""
+        r = max(0, min(255, int(self.r_val.get())))
+        g = max(0, min(255, int(self.g_val.get())))
+        b = max(0, min(255, int(self.b_val.get())))
         return (b, g, r)
 
-    def get_thickness(self):
+    def update_color_preview(self):
         try:
-            t = int(self.thickness.get())
-        except (tk.TclError, TypeError, ValueError):
-            t = 1
-        t = max(1, min(50, t))
-        self.thickness.set(t)
-        return t
+            r = max(0, min(255, int(self.r_val.get())))
+            g = max(0, min(255, int(self.g_val.get())))
+            b = max(0, min(255, int(self.b_val.get())))
+            self.color_preview.config(bg=f"#{r:02x}{g:02x}{b:02x}")
+        except Exception:
+            pass
 
-    def on_press(self, event):
+    def refresh_view(self, preview_img=None):
+        """Muestra en Tkinter la imagen escalada según el zoom configurado por el usuario."""
+        base = self.image if preview_img is None else preview_img
+        if base is None:
+            return
+
+        self.scale_factor = max(0.25, self.scale_var.get() / 100.0)
+        h, w = base.shape[:2]
+        nw, nh = max(1, int(w * self.scale_factor)), max(1, int(h * self.scale_factor))
+
+        disp = base if (nw == w and nh == h) else cv2.resize(base, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        rgb_img = cv2.cvtColor(disp, cv2.COLOR_BGR2RGB)
+        self.tk_image = ImageTk.PhotoImage(Image.fromarray(rgb_img))
+
+        self.canvas.delete("all")
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+        self.canvas.config(scrollregion=(0, 0, nw, nh))
+
+    def fit_to_window(self):
+        """Calcula el porcentaje de escala para que la imagen se ajuste a la ventana visible."""
         if self.image is None:
             return
-        tool = self.tool.get()
-        if tool in ("polyline", "polygon"):
-            self.poly_points.append((event.x, event.y))
-            self.update_poly_preview()
-        else:
-            self.start_point = (event.x, event.y)
-
-    def on_drag(self, event):
-        if self.image is None or self.start_point is None:
-            return
-        tool = self.tool.get()
-        if tool in ("polyline", "polygon"):
-            return
-        preview = self.image.copy()
-        self.draw_current_shape(preview, self.start_point, (event.x, event.y))
-        self.show_array(preview)
-
-
-    def on_release(self, event):
-        if self.image is None or self.start_point is None:
-            return
-        tool = self.tool.get()
-        if tool in ("polyline", "polygon"):
-            return
-        self.push_history()
-        self.draw_current_shape(self.image, self.start_point, (event.x, event.y))
-        self.capture_frame()
-        self.start_point = None
+        cw, ch = max(50, self.canvas.winfo_width()), max(50, self.canvas.winfo_height())
+        h, w = self.image.shape[:2]
+        scale = min(cw / w, ch / h) * 98.0
+        self.scale_var.set(round(max(25.0, min(300.0, scale)), 1))
         self.refresh_view()
 
-    def draw_current_shape(self, img, p1, p2):
+    # --- Requisito 1a: Inspector RGB al mover el ratón ---
+    def on_mouse_move(self, event):
+        coords = self.get_coords(event)
+        if coords is None:
+            return
+        x, y = coords
+        # En OpenCV la matriz se indexa como [y, x] y el orden es (Azul, Verde, Rojo)
+        b, g, r = self.image[y, x]
+        self.pos_label.config(text=f"Posición: ({x}, {y})")
+        self.rgb_label.config(text=f"RGB: ({int(r)}, {int(g)}, {int(b)})")
+
+    # --- Requisito 1b y 2: Dibujo de Primitivas con el Ratón ---
+    def on_press(self, event):
+        coords = self.get_coords(event)
+        if coords is None:
+            return
+
+        if self.tool.get() in ("polyline", "polygon"):
+            self.poly_points.append(coords)
+            self.update_poly_preview()
+        else:
+            self.start_point = coords
+
+    def on_drag(self, event):
+        """Previsualiza la figura en una copia en memoria sin modificar la imagen original."""
+        if self.image is None or self.start_point is None or self.tool.get() in ("polyline", "polygon"):
+            return
+        coords = self.get_coords(event)
+        if coords:
+            preview = self.image.copy()
+            self.draw_shape(preview, self.start_point, coords)
+            self.refresh_view(preview_img=preview)
+
+    def on_release(self, event):
+        """Plasma la figura definitiva en la imagen al soltar el ratón."""
+        if self.image is None or self.start_point is None or self.tool.get() in ("polyline", "polygon"):
+            return
+        coords = self.get_coords(event)
+        if coords:
+            self.push_history()
+            self.draw_shape(self.image, self.start_point, coords)
+            self.capture_video_frame()
+            self.refresh_view()
+        self.start_point = None
+
+    def draw_shape(self, target_img, p1, p2):
         tool = self.tool.get()
         color = self.get_bgr_color()
-        thickness = self.get_thickness()
-        fillable = tool in ("rectangle", "circle")
-        draw_thickness = cv2.FILLED if (fillable and self.fill_enabled.get()) else thickness
+        thick = cv2.FILLED if self.fill_enabled.get() else max(1, self.thickness.get())
 
         if tool == "line":
-            drawing_tools.draw_line(img, p1, p2, color, thickness)
+            drawing_tools.draw_line(target_img, p1, p2, color, max(1, self.thickness.get()))
         elif tool == "rectangle":
-            drawing_tools.draw_rectangle(img, p1, p2, color, draw_thickness)
+            drawing_tools.draw_rectangle(target_img, p1, p2, color, thick)
         elif tool == "circle":
-            drawing_tools.draw_circle(img, p1, p2, color, draw_thickness)
+            drawing_tools.draw_circle(target_img, p1, p2, color, thick)
         elif tool == "ellipse":
-            drawing_tools.draw_ellipse(img, p1, p2, color, draw_thickness)
+            drawing_tools.draw_ellipse(target_img, p1, p2, color, thick)
 
     def update_poly_preview(self):
-        if not self.poly_points:
+        """Muestra los vértices y segmentos actuales de la polilínea o polígono."""
+        if not self.poly_points or self.image is None:
             return
         preview = self.image.copy()
         color = self.get_bgr_color()
-        thickness = self.get_thickness()
-        for point in self.poly_points:
-            cv2.circle(preview, point, 3, color, cv2.FILLED, cv2.LINE_AA)
-        if len(self.poly_points) > 1:
-            drawing_tools.draw_polyline(preview, self.poly_points, color, thickness)
-        self.show_array(preview)
+        thick = max(1, self.thickness.get())
+        for pt in self.poly_points:
+            cv2.circle(preview, pt, max(2, thick), color, cv2.FILLED)
+        drawing_tools.draw_polyline(preview, self.poly_points, color, thick)
+        self.refresh_view(preview_img=preview)
 
     def finish_polygon(self):
-        tool = self.tool.get()
-        if tool not in ("polyline", "polygon"):
-            return
-        # el doble clic genera dos clics casi en el mismo punto; se descarta el duplicado
-        if len(self.poly_points) >= 2 and self.poly_points[-1] == self.poly_points[-2]:
-            self.poly_points.pop()
-        if len(self.poly_points) < 2:
-            self.poly_points = []
+        """Finaliza el trazado de polilínea o polígono."""
+        if self.image is None or self.tool.get() not in ("polyline", "polygon") or len(self.poly_points) < 2:
+            self.poly_points.clear()
             self.refresh_view()
             return
 
-        color = self.get_bgr_color()
-        thickness = self.get_thickness()
+        # Descartamos clic duplicado habitual del doble clic
+        if len(self.poly_points) >= 2 and self.poly_points[-1] == self.poly_points[-2]:
+            self.poly_points.pop()
 
         self.push_history()
-        if tool == "polyline":
-            drawing_tools.draw_polyline(self.image, self.poly_points, color, thickness)
-        else:  # polygon
+        color = self.get_bgr_color()
+        thick = max(1, self.thickness.get())
+
+        if self.tool.get() == "polyline":
+            drawing_tools.draw_polyline(self.image, self.poly_points, color, thick)
+        else:
             if self.fill_enabled.get():
                 drawing_tools.fill_polygon(self.image, self.poly_points, color)
             else:
-                drawing_tools.draw_polygon(self.image, self.poly_points, color, thickness)
+                drawing_tools.draw_polygon(self.image, self.poly_points, color, thick)
 
-        self.capture_frame()
-        self.poly_points = []
+        self.capture_video_frame()
+        self.poly_points.clear()
         self.refresh_view()
 
-    def update_zoom(self, x, y):
-        h, w = self.image.shape[:2]
-        radius = 5
-        x1, x2 = max(0, x - radius), min(w, x + radius + 1)
-        y1, y2 = max(0, y - radius), min(h, y + radius + 1)
-        patch = self.image[y1:y2, x1:x2]
+    # --- Aportación propia: Filtros OpenCV y Deshacer ---
+    def apply_filter(self):
+        if self.image is None:
+            messagebox.showinfo("Aviso", "Primero abre una imagen.")
+            return
+        self.push_history()
+        self.image = utils.apply_filter(self.image, self.filter_var.get())
+        self.capture_video_frame()
+        self.refresh_view()
 
-        zoom = cv2.resize(patch, None, fx=12, fy=12, interpolation=cv2.INTER_NEAREST)
-        zoom_rgb = cv2.cvtColor(zoom, cv2.COLOR_BGR2RGB)
-        pil_zoom = Image.fromarray(zoom_rgb)
-        self.zoom_tk_image = ImageTk.PhotoImage(pil_zoom)
-        self.zoom_label.config(image=self.zoom_tk_image)
+    def push_history(self):
+        if self.image is not None:
+            self.history.append(self.image.copy())
+            if len(self.history) > 20:
+                self.history.pop(0)
+
+    def undo(self):
+        if self.history:
+            self.image = self.history.pop()
+            self.poly_points.clear()
+            self.refresh_view()
+
+    # --- Archivos y Grabación de Vídeo ---
+    def open_image(self):
+        path = filedialog.askopenfilename(filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.bmp *.webp")])
+        if not path:
+            return
+        try:
+            self.image = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+        except Exception:
+            self.image = cv2.imread(path)
+
+        if self.image is None:
+            messagebox.showerror("Error", "No se pudo cargar la imagen.")
+            return
+
+        self.original_image = self.image.copy()
+        self.history.clear()
+        self.poly_points.clear()
+        self.start_point = None
+
+        # Si la imagen es grande, ajustamos automáticamente para verla entera
+        h, w = self.image.shape[:2]
+        if w > 850 or h > 600:
+            scale = min(850.0 / w, 600.0 / h) * 100.0
+            self.scale_var.set(round(scale, 1))
+        else:
+            self.scale_var.set(100.0)
+
+        self.refresh_view()
 
     def save_image(self):
         if self.image is None:
             return
-        path = filedialog.asksaveasfilename(
-            defaultextension=".png",
-            filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg")]
-        )
+        path = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg")])
         if not path:
             return
-        cv2.imwrite(path, self.image)
+        ext = os.path.splitext(path)[1] or ".png"
+        success, buf = cv2.imencode(ext, self.image)
+        if success:
+            buf.tofile(path)
 
     def restore_original(self):
-        if self.original_image is None:
-            return
-        self.push_history()
-        self.image = self.original_image.copy()
-        self.refresh_view()
+        if self.original_image is not None:
+            self.push_history()
+            self.image = self.original_image.copy()
+            self.poly_points.clear()
+            self.refresh_view()
 
     def toggle_recording(self):
         if self.image is None:
             return
-        if not self.recording:
-            self.recording = True
-            self.recorded_frames = []
-            self.capture_frame()
-            self.record_btn.config(text="Detener grabación")
+        self.recording = not self.recording
+        if self.recording:
+            self.recorded_frames = [self.image.copy()]
+            self.record_btn.config(text="Detener grabación", bg="#ffaaaa")
         else:
-            self.recording = False
-            self.record_btn.config(text="Iniciar grabación")
+            self.record_btn.config(text="Grabar vídeo", bg="SystemButtonFace")
             self.save_video()
 
-
-    def capture_frame(self):
+    def capture_video_frame(self):
         if self.recording and self.image is not None:
             self.recorded_frames.append(self.image.copy())
-
 
     def save_video(self):
         if not self.recorded_frames:
             return
-        path = filedialog.asksaveasfilename(
-            defaultextension=".mp4",
-            filetypes=[("MP4", "*.mp4")]
-        )
-        if not path:
-            return
-        video_recorder.write_video(path, self.recorded_frames)
-
-    def push_history(self):
-        self.history.append(self.image.copy())
-        if len(self.history) > self.max_history:
-            self.history.pop(0)
-        self.redo_stack.clear()
-
-    def undo(self):
-        if not self.history:
-            return
-        self.redo_stack.append(self.image.copy())
-        self.image = self.history.pop()
-        self.refresh_view()
-
-    def redo(self):
-        if not self.redo_stack:
-            return
-        self.history.append(self.image.copy())
-        self.image = self.redo_stack.pop()
-        self.refresh_view()
+        path = filedialog.asksaveasfilename(defaultextension=".mp4", filetypes=[("Vídeo MP4", "*.mp4")])
+        if path:
+            if video_recorder.write_video(path, self.recorded_frames):
+                messagebox.showinfo("Vídeo guardado", f"Vídeo paso a paso guardado en:\n{path}")
+            else:
+                messagebox.showerror("Error", "No se pudo crear el vídeo.")
